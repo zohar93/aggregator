@@ -69,3 +69,7 @@ jobs:
 
       - name: Timestamp
         run: date
+      
+      - name: Repo Activity
+        run: git rev-parse --is-inside-work-tree
+
