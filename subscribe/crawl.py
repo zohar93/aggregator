@@ -530,7 +530,7 @@ def crawl_google(
         params["start"] = start
         content = re.sub(r"\\\\n", "", utils.http_get(url=url, params=params))
         content = re.sub(r"\?token\\\\u003d", "?token=", content, flags=re.I)
-        regex = r'https?://(?:[a-zA-Z0-9_\u4e00-\u9fa5\-]+\.)+[a-zA-Z0-9_\u4e00-\u9fa5\-]+/?(?:<em(?:\s+)?class="qkunPe">/?)?api/v1/client/subscribe\?token(?:</em>)?=[a-zA-Z0-9]{16,32}'
+        regex = r'https?://(?:[a-zA-Z0-9_\u4e00-\u9fa5\-]+\.)+[a-zA-Z0-9_\u4e00-\u9fa5\-]+(?::\d+)?/?(?:<em(?:\s+)?class="qkunPe">/?)?api/v1/client/subscribe\?token(?:</em>)?=[a-zA-Z0-9]{16,32}'
         subscribes = re.findall(regex, content)
         for s in subscribes:
             s = re.sub(r'<em(?:\s+)?class="qkunPe">|</em>|\s+', "", s).replace("http://", "https://", 1)
@@ -614,7 +614,7 @@ def crawl_yandex(
                 logger.error(f"[YandexCrawl] invalid regex pattern: {reject}")
                 continue
 
-            regex = r"https?://(?:[a-zA-Z0-9_\u4e00-\u9fa5\-]+\.)+[a-zA-Z0-9_\u4e00-\u9fa5\-]+/<b>api</b>/<b>v</b><b>1</b>/<b>client</b>/<b>subscribe</b>\?<b>token</b>=[a-zA-Z0-9]{16,32}"
+            regex = r"https?://(?:[a-zA-Z0-9_\u4e00-\u9fa5\-]+\.)+[a-zA-Z0-9_\u4e00-\u9fa5\-]+(?::\d+)?/<b>api</b>/<b>v</b><b>1</b>/<b>client</b>/<b>subscribe</b>\?<b>token</b>=[a-zA-Z0-9]{16,32}"
             links = re.findall(regex, group, flags=re.I)
             for link in links:
                 try:
@@ -1082,7 +1082,7 @@ def extract_subscribes(
         return {}
     try:
         limits, collections, proxies = max(1, limits), {}, []
-        sub_regex = r"https?://(?:[a-zA-Z0-9\u4e00-\u9fa5\-]+\.)+[a-zA-Z0-9\u4e00-\u9fa5\-]+(?:(?:(?:/index.php)?/api/v1/client/subscribe\?token=[a-zA-Z0-9]{16,32})|(?:/link/[a-zA-Z0-9]+\?(?:sub|mu|clash)=\d)|(?:/(?:s|sub)/[a-zA-Z0-9]{32}))|https://jmssub\.net/members/getsub\.php\?service=\d+&id=[a-zA-Z0-9\-]{36}(?:\S+)?"
+        sub_regex = r"https?://(?:[a-zA-Z0-9\u4e00-\u9fa5\-]+\.)+[a-zA-Z0-9\u4e00-\u9fa5\-]+(?::\d+)?(?:(?:(?:/index.php)?/api/v1/client/subscribe\?token=[a-zA-Z0-9]{16,32})|(?:/link/[a-zA-Z0-9]+\?(?:sub|mu|clash)=\d)|(?:/(?:s|sub)/[a-zA-Z0-9]{32}))|https://jmssub\.net/members/getsub\.php\?service=\d+&id=[a-zA-Z0-9\-]{36}(?:\S+)?"
         extra_regex = r"https?://(?:[a-zA-Z0-9\u4e00-\u9fa5\-]+\.)+[a-zA-Z0-9\u4e00-\u9fa5\-]+/sub\?(?:\S+)?target=\S+"
         protocal_regex = (
             r"(?:vmess|trojan|ss|ssr|snell|hysteria2|vless|hysteria|tuic|anytls)://[a-zA-Z0-9:.?+=@%&#_\-/]{10,}"
@@ -1103,6 +1103,15 @@ def extract_subscribes(
                 subscribes = re.findall(regex, content)
         else:
             subscribes = re.findall(regex, content, flags=re.I)
+
+        try:
+            parts = re.findall(
+                r"(?m)^#(?:\s+)?(?:!MANAGED-CONFIG|订阅链接)[^\n]*?(https?://[^\s\"'<>]+)", content, flags=re.I
+            )
+            if parts:
+                subscribes.extend([utils.trim(p) for p in parts])
+        except:
+            pass
 
         # 去重会打乱原本按日期排序的特性一致无法优先选择离当前时间较近的元素
         # subscribes = list(set(subscribes))
@@ -1512,19 +1521,21 @@ def collect_airport(
             return list(set([urllib.parse.urljoin(prefix, x) for x in groups if x]))
 
         base = "https://ygpy.net"
-        links = get_links(url=base, prefix=base)
+        links = get_links(url=f"{base}/vpn/free", prefix=base, regex=r"/assets/chunks/free.data\.[^\r\n\s]+\.js")
         if not links:
             logger.warning(f"[AirPortCollector] cannot get article from url: {base}")
             return {}
 
-        articles = get_links(url=links[0], prefix=base)
+        articles = get_links(
+            url=links[0], prefix="", regex=r'"(https://ygpy.net/vpn/free/\d{4}/\d{2}/[^\r\n\s">]+\.html)"'
+        )
         if not articles:
             logger.warning(f"[AirPortCollector] cannot get articles from url: {links[0]}")
             return {}
 
         separator = r'<h2 id="\d+" tabindex="-1">'
         address_regex = r'<a href="(https?://[^\s]+)" target="_blank" rel="noreferrer nofollow">前往注册</a>'
-        coupon_regex = r"使用优惠码(?:\s+)?(?:<code>)?([^\r\n\s]+)(?:</code>(?:[\r\n\s]+)?)?0(?:\s+)?元购买"
+        coupon_regex = r"使用优惠[码券](?:\s+)?(?:<code>)?([^\r\n\s]+)(?:</code>(?:[\r\n\s]+)?)?0(?:\s+)?元购买"
 
         tasks = [[x, separator, address_regex, coupon_regex] for x in sorted(articles)]
         items = utils.multi_thread_run(func=run_crawl, tasks=tasks)
@@ -1537,7 +1548,10 @@ def collect_airport(
         # Extract javascript link from peer page and then parse airport urls and coupons
         javascripts = utils.multi_thread_run(
             func=get_links,
-            tasks=[[x, base, r'href="(/assets/vpn_\d+_\d+.md.[A-Za-z0-9_\-]+.lean.js)"'] for x in articles],
+            tasks=[
+                [x, base, r'href="(/assets/vpn_free_\d+_\d+_[^\r\n\s\"]+.md.[A-Za-z0-9_\-]+.lean.js)"']
+                for x in articles
+            ],
         )
 
         airports = utils.multi_thread_run(
@@ -1546,7 +1560,7 @@ def collect_airport(
                 [
                     x[0],
                     r'"详细信息"|测试报告"|"官方(群组|频道)|"更新于|"联系方式',
-                    r'{href:"(https?://[^\s]+/(?:#/register|auth)\?(?:code|invite)=[^\s]+)"}',
+                    r'"hyperlink":"(https?://[^\s]+/(?:#/register|auth)\?(?:code|invite)=[^\s]+)"',
                     r'{code:"([^\r\n\s]+)"}',
                 ]
                 for x in javascripts
