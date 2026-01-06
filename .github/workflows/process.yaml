@@ -1,32 +1,29 @@
-name: Process
+name: Collect
 on:
+  # executed once a week on Sundays at 00:00
   schedule:
-    - cron: "05 01 * * 1"
+    - cron: "0 1 * * 1"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.repository }}
+  cancel-in-progress: true
 
 env:
   # time zone
   TZ: Asia/Shanghai
 
-  # network proxy aggregate config
-  SUBSCRIBE_CONF: ${{ secrets.SUBSCRIBE_CONF }}
+  # github access token
+  GIST_PAT: ${{ secrets.GIST_PAT }}
 
-  # token
-  PUSH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+  # github username and gist id, separated by '/'
+  GIST_LINK: ${{ secrets.GIST_LINK }}
 
-  # network reachable
-  REACHABLE: ${{ vars.REACHABLE }}
+  # the url to the list of airports that you maintain yourself
+  # each line include domain, coupon and invitation code, the domain must be included, and the latter two items are optional
+  CUSTOMIZE_LINK: ${{ secrets.CUSTOMIZE_LINK }}
 
-  # not check connective
-  SKIP_ALIVE_CHECK: ${{ vars.SKIP_ALIVE_CHECK }}
-
-  # skip remark
-  SKIP_REMARK: ${{ vars.SKIP_REMARK }}
-
-  # workflow mode
-  WORKFLOW_MODE: ${{ vars.WORKFLOW_MODE }}
-
-  # include spwcial protocols, such vless hysteria2 and hysteria
+  # include special protocols, such as vless hysteria2 and hysteria
   ENABLE_SPECIAL_PROTOCOLS: ${{ vars.ENABLE_SPECIAL_PROTOCOLS }}
 
 jobs:
@@ -49,8 +46,29 @@ jobs:
       - name: Install
         run: pip3 install -r requirements.txt
 
-      - name: Process
-        run: python -u subscribe/process.py --overwrite
+      - name: Check
+        run: |
+          if [ -z "$GIST_PAT" ]; then
+              echo "Error: environment 'GIST_PAT' cannot be empty"
+              exit 1
+          fi
+
+          if [ -z "$GIST_LINK" ]; then
+              echo "Error: environment 'GIST_LINK' cannot be empty"
+              exit 1
+          fi
+
+          LINK_PARTS=$(echo "$GIST_LINK" | awk -F'/' 'NF==2 && $1!="" && $2!=""')
+          if [ -z "$LINK_PARTS" ]; then
+              echo "Error: environment 'GIST_LINK' is not valid, should be 'username/gist_id' format"
+              exit 1
+          fi
+
+      - name: Collect
+        run: python -u subscribe/collect.py --all --overwrite --skip
 
       - name: Timestamp
         run: date
+      
+      - name: Repo Activity
+        run: git rev-parse --is-inside-work-tree
